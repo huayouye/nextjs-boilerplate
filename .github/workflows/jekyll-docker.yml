@@ -1,0 +1,828 @@
+name: Jekyll site CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the site in the jekyll/builder container
+      run: |
+        docker run \
+        -v ${{ github.workspace }}:/srv/jekyll -v ${{ github.workspace }}/_site:/srv/jekyll/_site \
+        jekyll/builder:latest /bin/bash -c "chmod -R 777 /srv/jekyll && jekyll build --future"
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FileHub - 文件整合管理平台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  
+  <!-- Tailwind 配置 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3B82F6', // 主色调：蓝色，代表信任和专业
+            secondary: '#10B981', // 辅助色：绿色，用于成功状态和操作按钮
+            accent: '#6366F1', // 强调色：靛蓝色，用于重要元素
+            neutral: '#1F2937', // 中性深色：用于标题和重要文本
+            'neutral-light': '#F3F4F6', // 中性浅色：用于背景和分隔
+            danger: '#EF4444', // 危险色：用于错误和删除操作
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .text-shadow {
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+      .transition-all-300 {
+        transition: all 0.3s ease;
+      }
+      .hover-lift {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      .hover-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      }
+      .file-drop-active {
+        @apply border-primary bg-primary/5;
+      }
+    }
+  </style>
+</head>
+<body class="font-inter bg-gray-50 text-neutral min-h-screen flex flex-col">
+  <!-- 顶部导航栏 -->
+  <header class="bg-white shadow-sm sticky top-0 z-50 transition-all duration-300" id="navbar">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <!-- 品牌标识 -->
+        <div class="flex items-center">
+          <a href="#" class="flex items-center">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white">
+              <i class="fa fa-folder-open text-xl"></i>
+            </div>
+            <span class="ml-3 text-xl font-bold text-neutral">FileHub</span>
+          </a>
+          
+          <!-- 导航链接 - 桌面版 -->
+          <nav class="hidden md:ml-10 md:flex md:space-x-8">
+            <a href="#dashboard" class="text-primary border-b-2 border-primary px-1 pt-1 font-medium">仪表盘</a>
+            <a href="#files" class="text-gray-500 hover:text-primary px-1 pt-1 font-medium transition-colors">所有文件</a>
+            <a href="#collections" class="text-gray-500 hover:text-primary px-1 pt-1 font-medium transition-colors">文件集</a>
+            <a href="#recent" class="text-gray-500 hover:text-primary px-1 pt-1 font-medium transition-colors">最近操作</a>
+          </nav>
+        </div>
+        
+        <!-- 右侧功能区 -->
+        <div class="flex items-center space-x-4">
+          <!-- 搜索框 -->
+          <div class="hidden md:block relative">
+            <input type="text" placeholder="搜索文件..." class="py-2 pl-10 pr-4 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary w-64 transition-all">
+            <i class="fa fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+          </div>
+          
+          <!-- 通知按钮 -->
+          <button class="p-2 rounded-full hover:bg-gray-100 relative transition-colors">
+            <i class="fa fa-bell-o text-gray-600"></i>
+            <span class="absolute top-1 right-1 w-2 h-2 bg-danger rounded-full"></span>
+          </button>
+          
+          <!-- 用户头像 -->
+          <div class="relative">
+            <button id="user-menu-button" class="flex items-center space-x-2 focus:outline-none">
+              <img src="https://picsum.photos/id/1005/40/40" alt="用户头像" class="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm">
+              <span class="hidden md:inline font-medium">张明</span>
+              <i class="fa fa-chevron-down text-xs text-gray-500"></i>
+            </button>
+            
+            <!-- 用户下拉菜单 -->
+            <div id="user-menu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-50 border border-gray-100">
+              <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">个人资料</a>
+              <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">账户设置</a>
+              <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">存储空间</a>
+              <div class="border-t border-gray-100 my-1"></div>
+              <a href="#" class="block px-4 py-2 text-sm text-danger hover:bg-gray-100">退出登录</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主要内容区 -->
+  <main class="flex-grow container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- 页面标题和操作按钮 -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+      <div>
+        <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-neutral mb-2">文件整合管理</h1>
+        <p class="text-gray-500">上传、分类和管理你的所有文件，一站式解决文件整理需求</p>
+      </div>
+      <div class="mt-4 sm:mt-0 flex space-x-3">
+        <button id="upload-btn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg shadow-sm flex items-center transition-colors">
+          <i class="fa fa-upload mr-2"></i>上传文件
+        </button>
+        <button class="bg-white border border-gray-200 hover:bg-gray-50 text-neutral px-4 py-2 rounded-lg shadow-sm flex items-center transition-colors">
+          <i class="fa fa-folder mr-2"></i>新建文件夹
+        </button>
+      </div>
+    </div>
+    
+    <!-- 文件上传区域 -->
+    <div id="file-drop-area" class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-8 bg-white hover:border-primary/50 transition-all-300">
+      <i class="fa fa-cloud-upload text-5xl text-gray-400 mb-4"></i>
+      <h3 class="text-lg font-medium mb-2">拖放文件到此处上传</h3>
+      <p class="text-gray-500 mb-6">支持图片、文档、视频等多种格式，单个文件最大500MB</p>
+      <label for="file-input" class="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-lg shadow-sm inline-flex items-center cursor-pointer transition-colors">
+        <i class="fa fa-file mr-2"></i>选择文件
+        <input id="file-input" type="file" multiple class="hidden">
+      </label>
+      <p class="text-xs text-gray-400 mt-4">支持格式：JPG, PNG, PDF, DOCX, XLSX, MP4, ZIP 等</p>
+    </div>
+    
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div class="bg-white rounded-xl shadow-sm p-6 hover-lift">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-gray-500 text-sm mb-1">总文件数</p>
+            <h3 class="text-2xl font-bold">248</h3>
+            <p class="text-green-500 text-sm mt-2 flex items-center">
+              <i class="fa fa-arrow-up mr-1"></i>12% 较上月
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-primary">
+            <i class="fa fa-file-text-o"></i>
+          </div>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-xl shadow-sm p-6 hover-lift">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-gray-500 text-sm mb-1">已用存储空间</p>
+            <h3 class="text-2xl font-bold">12.5 GB</h3>
+            <p class="text-gray-500 text-sm mt-2">
+              <span class="text-primary">42%</span> 共30 GB
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center text-accent">
+            <i class="fa fa-hdd-o"></i>
+          </div>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2 mt-4">
+          <div class="bg-accent h-2 rounded-full" style="width: 42%"></div>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-xl shadow-sm p-6 hover-lift">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-gray-500 text-sm mb-1">共享文件</p>
+            <h3 class="text-2xl font-bold">36</h3>
+            <p class="text-green-500 text-sm mt-2 flex items-center">
+              <i class="fa fa-arrow-up mr-1"></i>8% 较上月
+            </p>
+          </div>
+          <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-secondary">
+            <i class="fa fa-share-alt"></i>
+          </div>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-xl shadow-sm p-6 hover-lift">
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-gray-500 text-sm mb-1">最近访问</p>
+            <h3 class="text-2xl font-bold">12</h3>
+            <p class="text-gray-500 text-sm mt-2">过去7天内</p>
+          </div>
+          <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center text-orange-500">
+            <i class="fa fa-clock-o"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 文件分类和图表 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div class="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="font-semibold text-lg">文件类型分布</h3>
+          <div class="flex space-x-2">
+            <button class="text-sm text-gray-500 hover:text-primary transition-colors">本周</button>
+            <button class="text-sm text-primary font-medium">本月</button>
+            <button class="text-sm text-gray-500 hover:text-primary transition-colors">全年</button>
+          </div>
+        </div>
+        <div class="h-64">
+          <canvas id="file-type-chart"></canvas>
+        </div>
+      </div>
+      
+      <div class="bg-white rounded-xl shadow-sm p-6">
+        <h3 class="font-semibold text-lg mb-6">文件分类</h3>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <div class="w-8 h-8 rounded bg-blue-100 flex items-center justify-center text-primary mr-3">
+                <i class="fa fa-file-image-o"></i>
+              </div>
+              <span>图片</span>
+            </div>
+            <span class="text-gray-500">86 个文件</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-primary h-2 rounded-full" style="width: 35%"></div>
+          </div>
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <div class="w-8 h-8 rounded bg-red-100 flex items-center justify-center text-red-500 mr-3">
+                <i class="fa fa-file-pdf-o"></i>
+              </div>
+              <span>文档</span>
+            </div>
+            <span class="text-gray-500">64 个文件</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-red-500 h-2 rounded-full" style="width: 26%"></div>
+          </div>
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <div class="w-8 h-8 rounded bg-purple-100 flex items-center justify-center text-purple-500 mr-3">
+                <i class="fa fa-file-video-o"></i>
+              </div>
+              <span>视频</span>
+            </div>
+            <span class="text-gray-500">42 个文件</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-purple-500 h-2 rounded-full" style="width: 17%"></div>
+          </div>
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <div class="w-8 h-8 rounded bg-green-100 flex items-center justify-center text-green-500 mr-3">
+                <i class="fa fa-file-excel-o"></i>
+              </div>
+              <span>表格</span>
+            </div>
+            <span class="text-gray-500">31 个文件</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-green-500 h-2 rounded-full" style="width: 12%"></div>
+          </div>
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <div class="w-8 h-8 rounded bg-yellow-100 flex items-center justify-center text-yellow-500 mr-3">
+                <i class="fa fa-file-zip-o"></i>
+              </div>
+              <span>压缩包</span>
+            </div>
+            <span class="text-gray-500">25 个文件</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-yellow-500 h-2 rounded-full" style="width: 10%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 最近文件表格 -->
+    <div class="bg-white rounded-xl shadow-sm mb-8 overflow-hidden">
+      <div class="p-6 border-b border-gray-100">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+          <h3 class="font-semibold text-lg mb-3 sm:mb-0">最近文件</h3>
+          <div class="flex items-center space-x-3">
+            <div class="relative">
+              <input type="text" placeholder="搜索文件..." class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary w-full sm:w-64">
+              <i class="fa fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
+            </div>
+            <div class="relative">
+              <button class="border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm flex items-center">
+                <i class="fa fa-filter mr-2 text-gray-500"></i>筛选
+                <i class="fa fa-chevron-down ml-2 text-xs text-gray-500"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">文件名</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">类型</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">大小</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">修改日期</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">位置</th>
+              <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <!-- 文件行 1 -->
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  <div class="w-8 h-8 rounded bg-blue-100 flex items-center justify-center text-primary mr-3">
+                    <i class="fa fa-file-pdf-o"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-neutral">项目计划书.pdf</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">PDF 文档</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2.4 MB</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2023-06-15 14:30</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">工作文档 > 项目资料</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div class="flex justify-end space-x-2">
+                  <button class="text-primary hover:text-primary/80" title="下载">
+                    <i class="fa fa-download"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="分享">
+                    <i class="fa fa-share-alt"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="更多选项">
+                    <i class="fa fa-ellipsis-v"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            
+            <!-- 文件行 2 -->
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  <div class="w-8 h-8 rounded bg-green-100 flex items-center justify-center text-green-500 mr-3">
+                    <i class="fa fa-file-image-o"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-neutral">产品展示图.jpg</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">JPG 图片</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">1.8 MB</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2023-06-14 09:15</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">图片库 > 产品图片</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div class="flex justify-end space-x-2">
+                  <button class="text-primary hover:text-primary/80" title="下载">
+                    <i class="fa fa-download"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="分享">
+                    <i class="fa fa-share-alt"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="更多选项">
+                    <i class="fa fa-ellipsis-v"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            
+            <!-- 文件行 3 -->
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  <div class="w-8 h-8 rounded bg-green-100 flex items-center justify-center text-green-500 mr-3">
+                    <i class="fa fa-file-excel-o"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-neutral">销售数据统计.xlsx</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">Excel 表格</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">856 KB</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2023-06-12 16:45</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">数据报表 > 月度统计</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div class="flex justify-end space-x-2">
+                  <button class="text-primary hover:text-primary/80" title="下载">
+                    <i class="fa fa-download"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="分享">
+                    <i class="fa fa-share-alt"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="更多选项">
+                    <i class="fa fa-ellipsis-v"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            
+            <!-- 文件行 4 -->
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  <div class="w-8 h-8 rounded bg-purple-100 flex items-center justify-center text-purple-500 mr-3">
+                    <i class="fa fa-file-video-o"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-neutral">产品介绍视频.mp4</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">视频文件</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">45.2 MB</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2023-06-10 11:20</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">视频素材 > 产品宣传</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div class="flex justify-end space-x-2">
+                  <button class="text-primary hover:text-primary/80" title="下载">
+                    <i class="fa fa-download"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="分享">
+                    <i class="fa fa-share-alt"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="更多选项">
+                    <i class="fa fa-ellipsis-v"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            
+            <!-- 文件行 5 -->
+            <tr class="hover:bg-gray-50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <input type="checkbox" class="rounded text-primary focus:ring-primary/50 border-gray-300">
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  <div class="w-8 h-8 rounded bg-yellow-100 flex items-center justify-center text-yellow-500 mr-3">
+                    <i class="fa fa-file-zip-o"></i>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-neutral">设计资源包.zip</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">压缩文件</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">18.7 MB</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">2023-06-08 09:10</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm text-gray-500">设计资源 > 素材库</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                <div class="flex justify-end space-x-2">
+                  <button class="text-primary hover:text-primary/80" title="下载">
+                    <i class="fa fa-download"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="分享">
+                    <i class="fa fa-share-alt"></i>
+                  </button>
+                  <button class="text-gray-500 hover:text-gray-700" title="更多选项">
+                    <i class="fa fa-ellipsis-v"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center">
+        <p class="text-sm text-gray-500 mb-4 sm:mb-0">显示 1 至 5 条，共 248 条</p>
+        <div class="flex space-x-1">
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            <i class="fa fa-chevron-left text-xs"></i>
+          </button>
+          <button class="px-3 py-1 border border-primary bg-primary text-white rounded text-sm">1</button>
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50">2</button>
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50">3</button>
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50">...</button>
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50">50</button>
+          <button class="px-3 py-1 border border-gray-200 rounded text-sm text-gray-500 bg-white hover:bg-gray-50">
+            <i class="fa fa-chevron-right text-xs"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+  
+  <!-- 页脚 -->
+  <footer class="bg-white border-t border-gray-200 py-8">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div>
+          <div class="flex items-center mb-4">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white">
+              <i class="fa fa-folder-open"></i>
+            </div>
+            <span class="ml-2 text-lg font-bold text-neutral">FileHub</span>
+          </div>
+          <p class="text-gray-500 text-sm mb-4">简单高效的文件整合管理平台，帮助你轻松管理各类文件资源。</p>
+          <div class="flex space-x-4">
+            <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+              <i class="fa fa-twitter"></i>
+            </a>
+            <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+              <i class="fa fa-facebook"></i>
+            </a>
+            <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+              <i class="fa fa-instagram"></i>
+            </a>
+            <a href="#" class="text-gray-400 hover:text-primary transition-colors">
+              <i class="fa fa-linkedin"></i>
+            </a>
+          </div>
+        </div>
+        
+        <div>
+          <h4 class="font-medium text-neutral mb-4">产品</h4>
+          <ul class="space-y-2 text-sm">
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">功能介绍</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">定价方案</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">存储空间</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">安全保障</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">更新日志</a></li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="font-medium text-neutral mb-4">支持</h4>
+          <ul class="space-y-2 text-sm">
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">帮助中心</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">常见问题</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">联系我们</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">使用教程</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">API 文档</a></li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="font-medium text-neutral mb-4">公司</h4>
+          <ul class="space-y-2 text-sm">
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">关于我们</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">隐私政策</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">服务条款</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">招贤纳士</a></li>
+            <li><a href="#" class="text-gray-500 hover:text-primary transition-colors">合作伙伴</a></li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="border-t border-gray-200 mt-8 pt-6 flex flex-col md:flex-row justify-between items-center">
+        <p class="text-gray-500 text-sm mb-4 md:mb-0">© 2023 FileHub. 保留所有权利。</p>
+        <div class="flex space-x-6 text-sm">
+          <a href="#" class="text-gray-500 hover:text-primary transition-colors">隐私政策</a>
+          <a href="#" class="text-gray-500 hover:text-primary transition-colors">服务条款</a>
+          <a href="#" class="text-gray-500 hover:text-primary transition-colors">Cookie 设置</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+  
+  <!-- 文件上传进度条 (默认隐藏) -->
+  <div id="upload-progress" class="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 w-80 hidden z-50">
+    <div class="flex justify-between items-center mb-2">
+      <h4 class="font-medium text-neutral">正在上传</h4>
+      <button class="text-gray-400 hover:text-danger transition-colors">
+        <i class="fa fa-times"></i>
+      </button>
+    </div>
+    <div class="text-sm text-gray-500 mb-2" id="upload-filename">设计资源包.zip</div>
+    <div class="w-full bg-gray-200 rounded-full h-2 mb-1">
+      <div id="progress-bar" class="bg-primary h-2 rounded-full" style="width: 0%"></div>
+    </div>
+    <div class="flex justify-between text-xs text-gray-500">
+      <span id="upload-percentage">0%</span>
+      <span id="upload-speed">2.4 MB / 18.7 MB</span>
+    </div>
+  </div>
+  
+  <script>
+    // 用户菜单切换
+    const userMenuButton = document.getElementById('user-menu-button');
+    const userMenu = document.getElementById('user-menu');
+    
+    userMenuButton.addEventListener('click', () => {
+      userMenu.classList.toggle('hidden');
+    });
+    
+    // 点击页面其他地方关闭用户菜单
+    document.addEventListener('click', (e) => {
+      if (!userMenuButton.contains(e.target) && !userMenu.contains(e.target)) {
+        userMenu.classList.add('hidden');
+      }
+    });
+    
+    // 导航栏滚动效果
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 10) {
+        navbar.classList.add('shadow');
+        navbar.classList.remove('shadow-sm');
+      } else {
+        navbar.classList.remove('shadow');
+        navbar.classList.add('shadow-sm');
+      }
+    });
+    
+    // 文件拖放功能
+    const fileDropArea = document.getElementById('file-drop-area');
+    const fileInput = document.getElementById('file-input');
+    const uploadBtn = document.getElementById('upload-btn');
+    const uploadProgress = document.getElementById('upload-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const uploadPercentage = document.getElementById('upload-percentage');
+    const uploadSpeed = document.getElementById('upload-speed');
+    
+    // 点击上传按钮触发文件选择
+    uploadBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+    
+    // 拖放事件
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      fileDropArea.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+      fileDropArea.addEventListener(eventName, highlight, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+      fileDropArea.addEventListener(eventName, unhighlight, false);
+    });
+    
+    function highlight() {
+      fileDropArea.classList.add('file-drop-active');
+    }
+    
+    function unhighlight() {
+      fileDropArea.classList.remove('file-drop-active');
+    }
+    
+    // 处理文件上传
+    fileDropArea.addEventListener('drop', handleDrop, false);
+    fileInput.addEventListener('change', handleFiles, false);
+    
+    function handleDrop(e) {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      handleFiles({ target: { files } });
+    }
+    
+    function handleFiles(e) {
+      const files = e.target.files;
+      if (files.length > 0) {
+        // 显示上传进度条
+        uploadProgress.classList.remove('hidden');
+        document.getElementById('upload-filename').textContent = files[0].name;
+        
+        // 模拟上传进度
+        let progress = 0;
+        const interval = setInterval(() => {
+          progress += Math.random() * 5;
+          if (progress > 100) {
+            progress = 100;
+            clearInterval(interval);
+            // 上传完成后3秒隐藏进度条
+            setTimeout(() => {
+              uploadProgress.classList.add('hidden');
+            }, 3000);
+          }
+          progressBar.style.width = `${progress}%`;
+          uploadPercentage.textContent = `${Math.round(progress)}%`;
+          
+          // 模拟文件大小显示
+          const fileSize = files[0].size / (1024 * 1024);
+          const uploadedSize = (fileSize * progress) / 100;
+          uploadSpeed.textContent = `${uploadedSize.toFixed(1)} MB / ${fileSize.toFixed(1)} MB`;
+        }, 300);
+      }
+    }
+    
+    // 初始化文件类型分布图表
+    window.addEventListener('load', () => {
+      const ctx = document.getElementById('file-type-chart').getContext('2d');
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['图片', '文档', '视频', '表格', '压缩包'],
+          datasets: [{
+            data: [86, 64, 42, 31, 25],
+            backgroundColor: [
+              '#3B82F6', // 蓝色 - 图片
+              '#EF4444', // 红色 - 文档
+              '#A855F7', // 紫色 - 视频
+              '#10B981', // 绿色 - 表格
+              '#EAB308'  // 黄色 - 压缩包
+            ],
+            borderWidth: 0,
+            hoverOffset: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: {
+                boxWidth: 12,
+                padding: 15
+              }
+            }
+          },
+          cutout: '70%'
+        }
+      });
+    });
+  </script>
+</body>
+</html>
